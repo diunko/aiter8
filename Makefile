@@ -1,4 +1,4 @@
-.PHONY: clean install-dev build test upload-test upload venv
+.PHONY: clean install-dev build test upload-test upload venv check-installed
 
 # Variables
 PACKAGE_NAME = iter8
@@ -12,22 +12,26 @@ VENV_RUN = . $(VENV_ACTIVATE) &&
 all: clean build
 
 # Create virtualenv
-venv:
+.pyenv:
 	$(PYTHON) -m venv $(VENV)
 	$(VENV_RUN) $(PIP) install --upgrade pip setuptools wheel
 
 # Install development dependencies
-install-dev: venv
+install-dev: .pyenv
 	$(VENV_RUN) $(PIP) install -e ".[dev]"
 	@echo "Installed $(PACKAGE_NAME) in development mode with dev dependencies"
 
 # Install just the package
-install: venv
+install: .pyenv
 	$(VENV_RUN) $(PIP) install -e .
 	@echo "Installed $(PACKAGE_NAME) in development mode"
 
+# Check if package is already installed
+check-installed: .pyenv
+	@$(VENV_RUN) pip show $(PACKAGE_NAME) > /dev/null 2>&1 || (echo "$(PACKAGE_NAME) not installed, installing..." && $(MAKE) install-dev)
+
 # Run tests
-test: install-dev
+test: .pyenv check-installed
 	$(VENV_RUN) pytest -xvs tests/
 	@echo "All tests passed!"
 

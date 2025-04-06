@@ -30,7 +30,6 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",      # For running tests
-    "unittest.mock",  # Standard library, but good to note if used heavily
     "build>=0.7",     # For building the package locally
     "twine>=3.0",     # For uploading the package to PyPI
 ]

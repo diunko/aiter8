@@ -2,9 +2,10 @@ import pytest
 import pandas as pd
 from unittest.mock import MagicMock, patch, call # Use MagicMock for more flexibility
 import numpy as np # For NaN values
+import gspread # Import gspread module for exceptions
 
 # Assuming your DataSheet class is in src.iter8.data_sheet
-from src.iter8.data_sheet import DataSheet, _UpdateContext
+from iter8.data_sheet import DataSheet, _UpdateContext
 
 # --- Fixtures ---
 
@@ -21,7 +22,7 @@ def mock_worksheet():
     return ws
 
 @pytest.fixture
-@patch('src.iter8.data_sheet.gspread.oauth') # Mock gspread connection
+@patch('iter8.data_sheet.gspread.oauth') # Mock gspread connection
 @patch.object(DataSheet, 'gspread_client') # Ensure we use the mocked client
 def data_sheet_instance(mock_gspread_client_cls, mock_oauth, mock_worksheet):
     """Provides a DataSheet instance initialized with mock data."""
@@ -59,7 +60,7 @@ def test_context_manager_single_cell_change(data_sheet_instance, mock_worksheet)
     row_index = 1 # Corresponds to id=2 in mock data, sheet row 3
     col_name = 'col_a'
     new_value = 'Updated A2'
-    expected_range = 'A3' # col_a is 1st col (A), sheet row 3
+    expected_range = 'B3' # col_a is 2nd col (B), sheet row 3 (after header)
 
     original_value = data_sheet_instance.loc[row_index, col_name]
 
@@ -80,8 +81,8 @@ def test_context_manager_multiple_cell_changes(data_sheet_instance, mock_workshe
     Test update after changing multiple cells in different rows/columns.
     """
     changes = [
-        {'idx': 0, 'col': 'col_b', 'val': 99, 'range': 'B2'}, # Row 0 -> Sheet Row 2
-        {'idx': 2, 'col': 'col_c', 'val': 'New C3', 'range': 'C4'}  # Row 2 -> Sheet Row 4
+        {'idx': 0, 'col': 'col_b', 'val': 99, 'range': 'C2'}, # Row 0 -> Sheet Row 2, col_b is 3rd column (C)
+        {'idx': 2, 'col': 'col_c', 'val': 'New C3', 'range': 'D4'}  # Row 2 -> Sheet Row 4, col_c is 4th column (D)
     ]
     expected_payload = [
         {'range': changes[0]['range'], 'values': [[changes[0]['val']]]},
@@ -96,8 +97,17 @@ def test_context_manager_multiple_cell_changes(data_sheet_instance, mock_workshe
     mock_worksheet.batch_update.assert_called_once()
     # Get the actual call arguments list
     actual_payload = mock_worksheet.batch_update.call_args[0][0]
-    # Use sets for order-independent comparison of list of dicts
-    assert set(map(tuple, (d.items() for d in actual_payload))) == set(map(tuple, (d.items() for d in expected_payload)))
+    
+    # Fix comparison method to handle lists
+    # Sort the payloads by range for consistent comparison
+    sorted_actual = sorted(actual_payload, key=lambda x: x['range'])
+    sorted_expected = sorted(expected_payload, key=lambda x: x['range'])
+    
+    # Compare each item separately
+    assert len(sorted_actual) == len(sorted_expected)
+    for i in range(len(sorted_actual)):
+        assert sorted_actual[i]['range'] == sorted_expected[i]['range']
+        assert sorted_actual[i]['values'] == sorted_expected[i]['values']
 
     # Check original DataFrame updates
     assert data_sheet_instance.loc[changes[0]['idx'], changes[0]['col']] == changes[0]['val']
@@ -108,7 +118,7 @@ def test_context_manager_change_with_df_update(data_sheet_instance, mock_workshe
     Test change detection when using df.update().
     """
     update_df = pd.DataFrame({'col_a': ['UPDATED A1']}, index=[0])
-    expected_range = 'A2' # Row 0 -> Sheet Row 2
+    expected_range = 'B2' # Row 0 -> Sheet Row 2, col_a is 2nd column (B)
 
     with data_sheet_instance.start_update() as change:
         change.update(update_df)
@@ -126,7 +136,7 @@ def test_context_manager_change_nan_to_value(data_sheet_instance, mock_worksheet
     row_index = 1 # col_c is NaN here, Sheet Row 3
     col_name = 'col_c'
     new_value = 'Now Has Value'
-    expected_range = 'C3' # col_c is 3rd col (C)
+    expected_range = 'D3' # col_c is 4th col (D)
 
     with data_sheet_instance.start_update() as change:
         change.loc[row_index, col_name] = new_value
@@ -144,7 +154,7 @@ def test_context_manager_change_value_to_empty(data_sheet_instance, mock_workshe
     row_index = 2 # col_c is 'C3', Sheet Row 4
     col_name = 'col_c'
     new_value = ''
-    expected_range = 'C4'
+    expected_range = 'D4' # col_c is 4th col (D)
 
     with data_sheet_instance.start_update() as change:
         change.loc[row_index, col_name] = new_value
@@ -178,29 +188,26 @@ def test_context_manager_gspread_update_fails(data_sheet_instance, mock_workshee
     Test handling when worksheet.batch_update raises an error.
     """
     original_df_copy = data_sheet_instance.copy()
-    gspread_exception = gspread.exceptions.APIError({'error': {'message': 'API limit reached'}})
+    
+    # Create a simple exception instead of trying to use APIError directly
+    gspread_exception = Exception("API limit reached")
     mock_worksheet.batch_update.side_effect = gspread_exception
 
     row_index = 0
     col_name = 'col_a'
     new_value = "Change that fails"
 
-    # Expect the gspread exception OR check logs/print output if caught internally
-    # For now, assume __exit__ might catch and print, then return True/False
-    # Let's modify the test assuming it catches and prints.
-    # If it re-raises, use pytest.raises here.
-    print("\nTesting gspread API failure (expecting error print):")
-    with patch('builtins.print') as mock_print: # Capture print output
-         with data_sheet_instance.start_update() as change:
+    # Test with a patch to capture print output
+    with patch('builtins.print') as mock_print:
+        with data_sheet_instance.start_update() as change:
             change.loc[row_index, col_name] = new_value
 
     # Assertions
     mock_worksheet.batch_update.assert_called_once() # It was called
     # Check that the original DataFrame was NOT updated because the API call failed
     pd.testing.assert_frame_equal(data_sheet_instance, original_df_copy, check_dtype=False)
-    # Check if the error was printed (based on current __exit__ implementation)
+    # Check if the error was printed
     mock_print.assert_any_call(f"Error during sheet update: {gspread_exception}")
-
 
 def test_column_renaming_or_dropping_impact(data_sheet_instance, mock_worksheet):
     """
@@ -220,7 +227,7 @@ def test_column_renaming_or_dropping_impact(data_sheet_instance, mock_worksheet)
     # Current logic compares based on original columns. Dropped/Renamed cols in copy won't align.
     # It should likely only update 'col_a' and might print warnings for others.
     mock_worksheet.batch_update.assert_called_once_with(
-        [{'range': 'A2', 'values': [['Valid Change']]}]
+        [{'range': 'B2', 'values': [['Valid Change']]}]
     )
     # Original DF should only have 'col_a' updated
     assert data_sheet_instance.loc[0, 'col_a'] == "Valid Change"
