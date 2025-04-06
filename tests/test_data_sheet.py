@@ -15,9 +15,9 @@ def mock_worksheet():
     ws = MagicMock()
     # Simulate get_all_records returning a list of dicts
     ws.get_all_records.return_value = [
-        {'id': 1, 'col_a': 'A1', 'col_b': 10, 'col_c': ''},
-        {'id': 2, 'col_a': 'A2', 'col_b': 20, 'col_c': np.nan},
-        {'id': 3, 'col_a': 'A3', 'col_b': 30, 'col_c': 'C3'},
+        {'id': 1, 'col_b': 'B1', 'col_c': 10, 'col_d': ''},
+        {'id': 2, 'col_b': 'B2', 'col_c': 20, 'col_d': np.nan},
+        {'id': 3, 'col_b': 'B3', 'col_c': 30, 'col_d': 'C3'},
     ]
     return ws
 
@@ -58,9 +58,9 @@ def test_context_manager_single_cell_change(data_sheet_instance, mock_worksheet)
     Test update after changing a single cell using .loc.
     """
     row_index = 1 # Corresponds to id=2 in mock data, sheet row 3
-    col_name = 'col_a'
-    new_value = 'Updated A2'
-    expected_range = 'B3' # col_a is 2nd col (B), sheet row 3 (after header)
+    col_name = 'col_b'
+    new_value = 'Updated B2'
+    expected_range = 'B3' # col_b is 2nd col (B), sheet row 3 (after header)
 
     original_value = data_sheet_instance.loc[row_index, col_name]
 
@@ -74,15 +74,15 @@ def test_context_manager_single_cell_change(data_sheet_instance, mock_worksheet)
     # Check original DataFrame was updated
     assert data_sheet_instance.loc[row_index, col_name] == new_value
     # Check other values remain unchanged
-    assert data_sheet_instance.loc[row_index, 'col_b'] == 20
+    assert data_sheet_instance.loc[row_index, 'col_c'] == 20
 
 def test_context_manager_multiple_cell_changes(data_sheet_instance, mock_worksheet):
     """
     Test update after changing multiple cells in different rows/columns.
     """
     changes = [
-        {'idx': 0, 'col': 'col_b', 'val': 99, 'range': 'C2'}, # Row 0 -> Sheet Row 2, col_b is 3rd column (C)
-        {'idx': 2, 'col': 'col_c', 'val': 'New C3', 'range': 'D4'}  # Row 2 -> Sheet Row 4, col_c is 4th column (D)
+        {'idx': 0, 'col': 'col_c', 'val': 99, 'range': 'C2'}, # Row 0 -> Sheet Row 2, col_c is 3rd column (C)
+        {'idx': 2, 'col': 'col_d', 'val': 'New D3', 'range': 'D4'}  # Row 2 -> Sheet Row 4, col_d is 4th column (D)
     ]
     expected_payload = [
         {'range': changes[0]['range'], 'values': [[changes[0]['val']]]},
@@ -117,26 +117,26 @@ def test_context_manager_change_with_df_update(data_sheet_instance, mock_workshe
     """
     Test change detection when using df.update().
     """
-    update_df = pd.DataFrame({'col_a': ['UPDATED A1']}, index=[0])
-    expected_range = 'B2' # Row 0 -> Sheet Row 2, col_a is 2nd column (B)
+    update_df = pd.DataFrame({'col_b': ['UPDATED B1']}, index=[0])
+    expected_range = 'B2' # Row 0 -> Sheet Row 2, col_b is 2nd column (B)
 
     with data_sheet_instance.start_update() as change:
         change.update(update_df)
 
     # Assertions
     mock_worksheet.batch_update.assert_called_once_with(
-         [{'range': expected_range, 'values': [['UPDATED A1']]}]
+         [{'range': expected_range, 'values': [['UPDATED B1']]}]
     )
-    assert data_sheet_instance.loc[0, 'col_a'] == 'UPDATED A1'
+    assert data_sheet_instance.loc[0, 'col_b'] == 'UPDATED B1'
 
 def test_context_manager_change_nan_to_value(data_sheet_instance, mock_worksheet):
     """
     Test changing a NaN value to a string.
     """
-    row_index = 1 # col_c is NaN here, Sheet Row 3
-    col_name = 'col_c'
+    row_index = 1 # col_d is NaN here, Sheet Row 3
+    col_name = 'col_d'
     new_value = 'Now Has Value'
-    expected_range = 'D3' # col_c is 4th col (D)
+    expected_range = 'D3' # col_d is 4th col (D)
 
     with data_sheet_instance.start_update() as change:
         change.loc[row_index, col_name] = new_value
@@ -151,10 +151,10 @@ def test_context_manager_change_value_to_empty(data_sheet_instance, mock_workshe
     """
     Test changing a string value to an empty string.
     """
-    row_index = 2 # col_c is 'C3', Sheet Row 4
-    col_name = 'col_c'
+    row_index = 2 # col_d is 'C3', Sheet Row 4
+    col_name = 'col_d'
     new_value = ''
-    expected_range = 'D4' # col_c is 4th col (D)
+    expected_range = 'D4' # col_d is 4th col (D)
 
     with data_sheet_instance.start_update() as change:
         change.loc[row_index, col_name] = new_value
@@ -175,7 +175,7 @@ def test_context_manager_exception_inside_with(data_sheet_instance, mock_workshe
 
     with pytest.raises(ValueError, match="Something went wrong inside!"):
         with data_sheet_instance.start_update() as change:
-            change.loc[0, 'col_a'] = "This change won't happen"
+            change.loc[0, 'col_b'] = "This change won't happen"
             raise custom_exception
 
     # Assertions
@@ -194,7 +194,7 @@ def test_context_manager_gspread_update_fails(data_sheet_instance, mock_workshee
     mock_worksheet.batch_update.side_effect = gspread_exception
 
     row_index = 0
-    col_name = 'col_a'
+    col_name = 'col_b'
     new_value = "Change that fails"
 
     # Test with a patch to capture print output
@@ -218,17 +218,17 @@ def test_column_renaming_or_dropping_impact(data_sheet_instance, mock_worksheet)
 
     with data_sheet_instance.start_update() as change:
          # This change should be detected
-         change.loc[0, 'col_a'] = "Valid Change"
+         change.loc[0, 'col_b'] = "Valid Change"
          # This modification makes comparison tricky if not handled carefully
-         # change.drop(columns=['col_b'], inplace=True) # Dropping column
-         # change.rename(columns={'col_c': 'col_c_new'}, inplace=True) # Renaming
+         # change.drop(columns=['col_c'], inplace=True) # Dropping column
+         # change.rename(columns={'col_d': 'col_d_new'}, inplace=True) # Renaming
 
     # Assertions (adapt based on how you expect/want it to handle this)
     # Current logic compares based on original columns. Dropped/Renamed cols in copy won't align.
-    # It should likely only update 'col_a' and might print warnings for others.
+    # It should likely only update 'col_b' and might print warnings for others.
     mock_worksheet.batch_update.assert_called_once_with(
         [{'range': 'B2', 'values': [['Valid Change']]}]
     )
-    # Original DF should only have 'col_a' updated
-    assert data_sheet_instance.loc[0, 'col_a'] == "Valid Change"
-    assert data_sheet_instance.loc[0, 'col_b'] == 10 # Unchanged
+    # Original DF should only have 'col_b' updated
+    assert data_sheet_instance.loc[0, 'col_b'] == "Valid Change"
+    assert data_sheet_instance.loc[0, 'col_c'] == 10 # Unchanged
