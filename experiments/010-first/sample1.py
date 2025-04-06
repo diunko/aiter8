@@ -81,8 +81,8 @@ example = [
 
 
 def sample_3():
-    df = pd.DataFrame(example)
-    print(f"{df=}")
+    df = pd.DataFrame(example).set_index('id')
+    print(f"{df}")
 
 
 if __name__ == "__main__":
