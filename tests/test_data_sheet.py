@@ -68,9 +68,11 @@ def test_context_manager_single_cell_change(data_sheet_instance, mock_worksheet)
         change.loc[row_index, col_name] = new_value
 
     # Assertions
-    mock_worksheet.batch_update.assert_called_once_with(
-        [{'range': expected_range, 'values': [[new_value]]}]
-    )
+    mock_worksheet.batch_update.assert_called_once()
+    call_args, call_kwargs = mock_worksheet.batch_update.call_args
+    assert call_args[0] == [{'range': expected_range, 'values': [[new_value]]}]
+    assert call_kwargs.get('value_input_option') == 'USER_ENTERED'
+    
     # Check original DataFrame was updated
     assert data_sheet_instance.loc[row_index, col_name] == new_value
     # Check other values remain unchanged
@@ -96,7 +98,9 @@ def test_context_manager_multiple_cell_changes(data_sheet_instance, mock_workshe
     # Assertions
     mock_worksheet.batch_update.assert_called_once()
     # Get the actual call arguments list
-    actual_payload = mock_worksheet.batch_update.call_args[0][0]
+    call_args, call_kwargs = mock_worksheet.batch_update.call_args
+    actual_payload = call_args[0]
+    assert call_kwargs.get('value_input_option') == 'USER_ENTERED'
     
     # Fix comparison method to handle lists
     # Sort the payloads by range for consistent comparison
@@ -124,9 +128,11 @@ def test_context_manager_change_with_df_update(data_sheet_instance, mock_workshe
         change.update(update_df)
 
     # Assertions
-    mock_worksheet.batch_update.assert_called_once_with(
-         [{'range': expected_range, 'values': [['UPDATED B1']]}]
-    )
+    mock_worksheet.batch_update.assert_called_once()
+    call_args, call_kwargs = mock_worksheet.batch_update.call_args
+    assert call_args[0] == [{'range': expected_range, 'values': [['UPDATED B1']]}]
+    assert call_kwargs.get('value_input_option') == 'USER_ENTERED'
+    
     assert data_sheet_instance.loc[0, 'col_b'] == 'UPDATED B1'
 
 def test_context_manager_change_nan_to_value(data_sheet_instance, mock_worksheet):
@@ -142,9 +148,11 @@ def test_context_manager_change_nan_to_value(data_sheet_instance, mock_worksheet
         change.loc[row_index, col_name] = new_value
 
     # Assertions
-    mock_worksheet.batch_update.assert_called_once_with(
-        [{'range': expected_range, 'values': [[new_value]]}]
-    )
+    mock_worksheet.batch_update.assert_called_once()
+    call_args, call_kwargs = mock_worksheet.batch_update.call_args
+    assert call_args[0] == [{'range': expected_range, 'values': [[new_value]]}]
+    assert call_kwargs.get('value_input_option') == 'USER_ENTERED'
+
     assert data_sheet_instance.loc[row_index, col_name] == new_value
 
 def test_context_manager_change_value_to_empty(data_sheet_instance, mock_worksheet):
@@ -161,9 +169,11 @@ def test_context_manager_change_value_to_empty(data_sheet_instance, mock_workshe
 
     # Assertions
     # The code correctly handles NaN -> "" for gspread
-    mock_worksheet.batch_update.assert_called_once_with(
-        [{'range': expected_range, 'values': [[new_value]]}]
-    )
+    mock_worksheet.batch_update.assert_called_once()
+    call_args, call_kwargs = mock_worksheet.batch_update.call_args
+    assert call_args[0] == [{'range': expected_range, 'values': [[new_value]]}]
+    assert call_kwargs.get('value_input_option') == 'USER_ENTERED'
+
     assert data_sheet_instance.loc[row_index, col_name] == new_value
 
 def test_context_manager_exception_inside_with(data_sheet_instance, mock_worksheet):
@@ -203,7 +213,11 @@ def test_context_manager_gspread_update_fails(data_sheet_instance, mock_workshee
             change.loc[row_index, col_name] = new_value
 
     # Assertions
-    mock_worksheet.batch_update.assert_called_once() # It was called
+    mock_worksheet.batch_update.assert_called_once()
+    call_args, call_kwargs = mock_worksheet.batch_update.call_args
+    assert call_args[0] == [{'range': 'B2', 'values': [[new_value]]}]
+    assert call_kwargs.get('value_input_option') == 'USER_ENTERED'
+    
     # Check that the original DataFrame was NOT updated because the API call failed
     pd.testing.assert_frame_equal(data_sheet_instance, original_df_copy, check_dtype=False)
     # Check if the error was printed
@@ -226,9 +240,11 @@ def test_column_renaming_or_dropping_impact(data_sheet_instance, mock_worksheet)
     # Assertions (adapt based on how you expect/want it to handle this)
     # Current logic compares based on original columns. Dropped/Renamed cols in copy won't align.
     # It should likely only update 'col_b' and might print warnings for others.
-    mock_worksheet.batch_update.assert_called_once_with(
-        [{'range': 'B2', 'values': [['Valid Change']]}]
-    )
+    mock_worksheet.batch_update.assert_called_once()
+    call_args, call_kwargs = mock_worksheet.batch_update.call_args
+    assert call_args[0] == [{'range': 'B2', 'values': [['Valid Change']]}]
+    assert call_kwargs.get('value_input_option') == 'USER_ENTERED'
+    
     # Original DF should only have 'col_b' updated
     assert data_sheet_instance.loc[0, 'col_b'] == "Valid Change"
     assert data_sheet_instance.loc[0, 'col_c'] == 10 # Unchanged

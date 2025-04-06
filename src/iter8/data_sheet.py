@@ -63,76 +63,103 @@ class _UpdateContext:
             print(f"Exception occurred: {exc_val}. No updates applied.")
             return False # Indicate exception was not handled here
 
-        # 1. Compare the original state with the final state of the copy
-        # Use the original DataFrame from __init__ and the copy_df modified within the block
-        # Convert to string for reliable comparison across types (like int vs float)
-        orig_str = self.original_df.astype(str)
-        copy_str = self.copy_df.astype(str)
-
-        # Find cells that are different
-        changed_mask = orig_str != copy_str
-
-        # Check if any changes were actually made
-        if not changed_mask.any().any():
-            print("No changes detected in the DataFrame.")
-            return True # Exit cleanly
-
-        # 2. Prepare batch updates ONLY for the detected changes
+        # Prepare batch updates list
         updates = []
-        # Assuming the DataFrame index corresponds to sheet rows (after header)
-        # If using a different index (e.g., 'id'), map it to row numbers
-        # For simplicity, assuming default RangeIndex 0, 1, 2...
-        index_to_row = {idx: idx + 2 for idx in self.original_df.index} # +2 for 1-based index and header
 
-        for idx in changed_mask.index:
-            if idx not in index_to_row: continue # Skip if index not found (e.g., after dropping rows)
-            row_changes = changed_mask.loc[idx]
-            for col_name in row_changes[row_changes].index: # Iterate only through changed columns for this row
-                try:
-                    # Get row and column position in the sheet
-                    sheet_row = index_to_row[idx]
-                    # Find column index (0-based) and convert to letter (A=1)
-                    col_idx = self.original_df.columns.get_loc(col_name)
-                    col_letter = gspread.utils.rowcol_to_a1(1, col_idx + 1)[:-1] # Get letter part of A1 notation
+        # 1. Identify new columns (columns in copy_df but not in original_df)
+        original_columns = set(self.original_df.columns)
+        copy_columns = set(self.copy_df.columns)
+        new_columns = copy_columns - original_columns
+        existing_columns = original_columns.intersection(copy_columns)
 
-                    # Get the new value from the modified copy
-                    new_value = self.copy_df.loc[idx, col_name]
+        # 2. Add header updates for new columns
+        if new_columns:
+            # Calculate column positions for new columns
+            existing_col_count = len(original_columns)
+            for i, col_name in enumerate(sorted(new_columns)):
+                col_idx = existing_col_count + i
+                col_letter = gspread.utils.rowcol_to_a1(1, col_idx + 1)[:-1]  # Get letter part of A1 notation
+                
+                # Add header update
+                updates.append({
+                    "range": f"{col_letter}1",
+                    "values": [[col_name]]
+                })
+                
+                # 3. Add updates for explicitly set values in new columns (ignore NaN)
+                for idx in self.copy_df.index:
+                    cell_value = self.copy_df.loc[idx, col_name]
+                    if pd.notna(cell_value):  # Only include non-NaN values
+                        sheet_row = idx + 2  # +2 for 1-based index and header
+                        updates.append({
+                            "range": f"{col_letter}{sheet_row}",
+                            "values": [[cell_value]]
+                        })
 
-                    # Handle potential NaN values for gspread
-                    if pd.isna(new_value):
-                        new_value = "" # Or use a specific marker if needed
+        # 4. Handle updates for existing columns
+        if existing_columns:
+            # Convert to string for reliable comparison across types (like int vs float)
+            orig_str = self.original_df[list(existing_columns)].astype(str)
+            copy_str = self.copy_df[list(existing_columns)].astype(str)
 
-                    # Add to batch updates
-                    updates.append({
-                        "range": f"{col_letter}{sheet_row}",
-                        "values": [[new_value]]
-                    })
-                except KeyError:
-                    print(f"Warning: Column '{col_name}' not found in original columns. Skipping update.")
-                    continue
+            # Find cells that are different
+            changed_mask = orig_str != copy_str
 
+            # Check if any changes were made to existing columns
+            if changed_mask.any().any():
+                # Prepare updates for each changed cell in existing columns
+                index_to_row = {idx: idx + 2 for idx in self.original_df.index}  # +2 for 1-based index and header
 
-        # 3. Apply updates to the sheet and the original DataFrame
+                for idx in changed_mask.index:
+                    if idx not in index_to_row: continue  # Skip if index not found
+                    row_changes = changed_mask.loc[idx]
+                    for col_name in row_changes[row_changes].index:  # Iterate through changed columns
+                        try:
+                            # Get row and column position in the sheet
+                            sheet_row = index_to_row[idx]
+                            # Find column index (0-based) and convert to letter (A=1)
+                            col_idx = self.original_df.columns.get_loc(col_name)
+                            col_letter = gspread.utils.rowcol_to_a1(1, col_idx + 1)[:-1]  # Get letter part of A1 notation
+
+                            # Get the new value from the modified copy
+                            new_value = self.copy_df.loc[idx, col_name]
+
+                            # Handle potential NaN values for gspread
+                            if pd.isna(new_value):
+                                new_value = ""  # Convert NaN to empty string for existing columns
+
+                            # Add to batch updates
+                            updates.append({
+                                "range": f"{col_letter}{sheet_row}",
+                                "values": [[new_value]]
+                            })
+                        except KeyError:
+                            print(f"Warning: Column '{col_name}' not found in original columns. Skipping update.")
+                            continue
+
+        # 5. Apply updates to the sheet and the original DataFrame
         if updates:
             try:
-                self.worksheet.batch_update(updates)
+                self.worksheet.batch_update(updates, value_input_option='USER_ENTERED')
                 print(f"Updated {len(updates)} cells in Google Sheet.")
 
-                # Update the original DataFrame in memory to match the copy
-                # Use the changed_mask to apply changes efficiently
-                self.original_df.update(self.copy_df[changed_mask])
-                # self.original_df = self.copy_df # Or simply replace if easier
+                # Update the original DataFrame to match the copy
+                # Simply replace the original with the copy to include new columns
+                for col in self.copy_df.columns:
+                    if col in self.original_df.columns:
+                        # For existing columns, only update changed values
+                        self.original_df[col] = self.copy_df[col]
+                    else:
+                        # For new columns, add the entire column
+                        self.original_df[col] = self.copy_df[col]
 
                 print(f"Updated original DataFrame in memory.")
             except Exception as e:
                 print(f"Error during sheet update: {e}")
-                # Decide if you want to propagate the error or handle it
-                # return False # Or re-raise e
         else:
-            print("Detected changes, but no valid updates generated (check column names?).")
+            print("No changes detected.")
 
-
-        return True # Indicate successful exit (or exception handled)
+        return True  # Indicate successful exit
     
 def test_something():
     f = DataSheet.from_sheet(id='apsodifjapdosifj', sheet_id='step1')
@@ -143,12 +170,7 @@ def test_something():
             'image': "=IMAGE('http://testing.com/something.jpg')",
         }
 
-        # Can use the simpler DataFrame.update() method
-        temp = pd.DataFrame([llm_new_fields], index=[1])
-        change.update(temp)
-        
-        # Or the original method
-        # change.loc[1, llm_new_fields.keys()] = list(llm_new_fields.values())
+        change.loc[1, llm_new_fields.keys()] = list(llm_new_fields.values())
 
 
 
