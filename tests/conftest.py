@@ -12,10 +12,14 @@ def mock_worksheet():
     """Provides a mock gspread worksheet object."""
     ws = MagicMock()
     # Simulate get_all_records returning a list of dicts
+    # Values are named to reflect their expected Sheet cell location for clarity
     ws.get_all_records.return_value = [
-        {'id': 1, 'col_b': 'B1', 'col_c': 10, 'col_d': ''},
-        {'id': 2, 'col_b': 'B2', 'col_c': 20, 'col_d': np.nan},
-        {'id': 3, 'col_b': 'B3', 'col_c': 30, 'col_d': 'C3'},
+        # DataFrame Index 0 -> Sheet Row 2
+        {'id': 1, 'col_b': 'B2_val', 'col_c': 10,       'col_d': ''},       # A2, B2, C2, D2
+        # DataFrame Index 1 -> Sheet Row 3
+        {'id': 2, 'col_b': 'B3_val', 'col_c': 20,       'col_d': np.nan},   # A3, B3, C3, D3
+        # DataFrame Index 2 -> Sheet Row 4
+        {'id': 3, 'col_b': 'B4_val', 'col_c': 30,       'col_d': 'D4_val'}, # A4, B4, C4, D4
     ]
     # Add a name attribute for easier debugging if needed
     ws.name = "MockWorksheet"
