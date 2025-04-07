@@ -23,7 +23,7 @@ class DataSheet(pd.DataFrame):
     )
 
     @classmethod
-    def from_sheet(cls, id, sheet_id):
+    def from_sheet(cls, id, sheet_id) -> 'DataSheet':
         spreadsheet = cls.gspread_client.open_by_key(id)
         worksheet = spreadsheet.worksheet(sheet_id)
         
@@ -50,7 +50,7 @@ class DataSheet(pd.DataFrame):
 class _UpdateContext:
     def __init__(self, original_df):
         self.original_df = original_df
-        self.worksheet = original_df._worksheet
+        self.worksheet: gspread.Worksheet = original_df._worksheet
         
     def __enter__(self):
         # Create a copy for modifications

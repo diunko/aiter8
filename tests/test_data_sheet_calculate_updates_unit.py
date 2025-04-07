@@ -22,7 +22,7 @@ def test_calculate_updates_single_cell(data_sheet_instance):
     # Simulate the change made within the context manager
     change_idx = 1
     change_col = 'col_b'
-    new_value = 'Updated B2'
+    new_value = 'Updated B3'
     copy_df.loc[change_idx, change_col] = new_value
 
     # Expected payload for gspread batch_update
