@@ -138,7 +138,7 @@ class _UpdateContext:
 
         for idx in diff.index:
             assert idx in index_to_sheet_row
-            
+
             sheet_row = index_to_sheet_row[idx]
             
             # Get columns where differences were found
@@ -146,8 +146,13 @@ class _UpdateContext:
             
             # For each changed column, get the 'other' value
             for col_name in diff_cols:
-                # Access the 'other' value using the MultiIndex
+                # Access the original and new values using the MultiIndex
+                orig_value = diff.loc[idx, (col_name, 'self')]
                 new_value = diff.loc[idx, (col_name, 'other')]
+                
+                # Skip if both values are NaN (this is the key fix)
+                if pd.isna(orig_value) and pd.isna(new_value):
+                    continue
                 
                 sheet_col_idx = final_col_to_idx[col_name]
                 col_letter = gspread.utils.rowcol_to_a1(1, sheet_col_idx + 1)[:-1]
@@ -180,6 +185,7 @@ class _UpdateContext:
                 # Apply batch updates to the Google Sheet
                 self.worksheet.batch_update(updates, value_input_option='USER_ENTERED')
                 print(f"Updated {len(updates)} cells in Google Sheet.")
+                print(f"{updates=}")
 
                 # Update the original DataFrame in memory to match the modified copy
                 # Preserve the original object ID
