@@ -1,6 +1,7 @@
 import pandas as pd
 import os
 import gspread
+import numpy as np
 
 class DfSheet:
     def __init__(self, sheet):
@@ -30,8 +31,23 @@ class DataSheet(pd.DataFrame):
         records = worksheet.get_all_records()
         df = cls(records)
         
+        # Convert string boolean values to Python booleans
+        for col in df.columns:
+            # Check if column contains potential boolean string values
+            if df[col].dtype == 'object':  # String columns
+                # Create masks for case-insensitive TRUE/FALSE values
+                true_mask = df[col].astype(str).str.upper() == 'TRUE'
+                false_mask = df[col].astype(str).str.upper() == 'FALSE'
+                
+                # If either TRUE or FALSE values exist in this column
+                if true_mask.any() or false_mask.any():
+                    # Create a series to avoid SettingWithCopyWarning
+                    series = df[col].copy()
+                    series[true_mask] = True
+                    series[false_mask] = False
+                    df[col] = series
+        
         df._worksheet = worksheet
-
         return df
     
     def start_update(self):
@@ -49,7 +65,7 @@ class DataSheet(pd.DataFrame):
     
 class _UpdateContext:
     def __init__(self, original_df):
-        self.original_df = original_df
+        self.original_df: pd.DataFrame = original_df
         self.worksheet: gspread.Worksheet = original_df._worksheet
         
     def __enter__(self):
@@ -58,114 +74,95 @@ class _UpdateContext:
         return self.copy_df
 
     def _calculate_updates(self):
-        """Compares the copied DataFrame with the original and returns a list of updates for gspread."""
-        updates = []
-        # Convert DataFrames to string for reliable comparison across types
-        # Make copies to avoid modifying the originals during calculation
-        orig_str = self.original_df.astype(str)
-        copy_str = self.copy_df.astype(str)
+        """Compares the copied DataFrame with the original and returns a list of updates for gspread, preserving column order."""
+        header_updates = []
+        cell_updates = []
 
-        # 1. Identify new columns (columns in copy_df but not in original_df)
-        original_columns = set(self.original_df.columns)
-        copy_columns = set(self.copy_df.columns)
-        new_columns = copy_columns - original_columns
-        existing_columns = original_columns.intersection(copy_columns)
+        # Step 1: Identify Column Sets & Order
+        original_columns_list = list(self.original_df.columns)
+        final_columns_list = list(self.copy_df.columns) # Target order
+        original_columns_set = set(original_columns_list)
+        final_columns_set = set(final_columns_list)
 
-        # 2. Add header updates for new columns
-        if new_columns:
-            existing_col_count = len(original_columns)
-            # Sort new columns alphabetically for consistent sheet layout
-            sorted_new_columns = sorted(list(new_columns))
-            col_letter_map_new = {} # Store A1 letters for new columns
+        new_columns_list = [col for col in final_columns_list if col not in original_columns_set]
+        existing_columns_list = [col for col in final_columns_list if col in original_columns_set]
 
-            for i, col_name in enumerate(sorted_new_columns):
-                # Calculate 0-based column index in the *final* sheet layout
-                sheet_col_idx = existing_col_count + i
-                # Get A1 letter (e.g., 'A', 'B', ... 'AA') using 1-based index
+        # Map final column names to their 0-based index for A1 calculation
+        final_col_to_idx = {col_name: i for i, col_name in enumerate(final_columns_list)}
+
+        # Step 2: Prepare Header Updates (Preserving Order)
+        if new_columns_list:
+            for col_name in new_columns_list: # Iterate in the order they appear in final_columns_list
+                sheet_col_idx = final_col_to_idx[col_name]
                 col_letter = gspread.utils.rowcol_to_a1(1, sheet_col_idx + 1)[:-1]
-                col_letter_map_new[col_name] = col_letter
-
-                # Add header update
-                updates.append({
+                header_updates.append({
                     "range": f"{col_letter}1",
                     "values": [[col_name]]
                 })
 
-            # 3. Add updates for explicitly set values in new columns (ignore NaN in the *copy*)
-            # Map DataFrame index to sheet row number (+2 for 1-based index and header)
-            index_to_sheet_row = {idx: idx + 2 for idx in self.copy_df.index}
+        # Step 3: Create Aligned Temporary DataFrames (Preserving Order)
+        # Ensure consistent index type for comparison/reindexing if needed
+        # self.original_df.index = self.original_df.index.astype(self.copy_df.index.dtype)
 
-            for col_name in sorted_new_columns: # Iterate using the same sorted order
-                col_letter = col_letter_map_new[col_name]
-                for idx in self.copy_df.index:
-                    if idx not in index_to_sheet_row: continue # Should not happen if index is consistent
+        temp_original_df = self.original_df.copy()
+        temp_copy_df = self.copy_df.copy()
 
-                    cell_value = self.copy_df.loc[idx, col_name]
-                    # Only add updates for non-NaN values in the copy
-                    if pd.notna(cell_value):
-                        sheet_row = index_to_sheet_row[idx]
-                        updates.append({
-                            "range": f"{col_letter}{sheet_row}",
-                            # Use the original value type, let gspread handle it with USER_ENTERED
-                            "values": [[cell_value]] # Removed str() conversion
-                        })
+        # Reindex both using the final desired column order
+        # Use pd.NA for compatible missing value representation if possible
+        try:
+            temp_original_df = temp_original_df.reindex(columns=final_columns_list, fill_value=pd.NA)
+            # temp_copy_df doesn't strictly need reindexing if final_columns_list came from it,
+            # but doing so ensures the columns object is identical, which might be safer.
+            temp_copy_df = temp_copy_df.reindex(columns=final_columns_list, fill_value=pd.NA)
+        except TypeError: # Fallback for older pandas versions that might not support pd.NA in fill_value
+             temp_original_df = temp_original_df.reindex(columns=final_columns_list, fill_value=np.nan)
+             temp_copy_df = temp_copy_df.reindex(columns=final_columns_list, fill_value=np.nan)
 
-        # 4. Handle updates for existing columns
-        if existing_columns:
-            # Use the string-converted dataframes for comparison
-            orig_subset_str = orig_str[list(existing_columns)]
-            copy_subset_str = copy_str[list(existing_columns)]
+        # Ensure indices match for proper comparison row-wise
+        # This shouldn't be necessary if copy_df starts as a copy and indices aren't modified,
+        # but as a safeguard:
+        common_index = self.original_df.index.intersection(self.copy_df.index)
+        # If indices *could* diverge, filter temps: (but let's assume they don't for this use case)
+        # temp_original_df = temp_original_df.loc[common_index]
+        # temp_copy_df = temp_copy_df.loc[common_index]
 
-            # Find cells that are different (ignoring NaNs in the copy potentially)
-            # We need the original comparison logic here based on the copy_df, not copy_str
-            changed_mask = self.original_df[list(existing_columns)] != self.copy_df[list(existing_columns)]
-            # Consider NaN != non-NaN as a change. Also consider non-NaN != NaN as a change.
-            # The string comparison approach might handle this subtly, let's refine
-            # A more robust way: Check where values differ OR where one is NaN and the other isn't.
-            changed_mask = (self.original_df[list(existing_columns)] != self.copy_df[list(existing_columns)]) & \
-                           ~(self.original_df[list(existing_columns)].isna() & self.copy_df[list(existing_columns)].isna())
+        # Step 4: Calculate Cell Value Updates (Simplified Diff, Order-Aware)
+        # Use .compare() for detailed differences, handling NaNs correctly by default
+        # compare() returns a DataFrame with multi-index columns ('self', 'other')
+        diff = temp_original_df.compare(temp_copy_df, keep_shape=False, keep_equal=False)
+        print("\nDifferences found:")
+        print(diff.to_string())
+        
+        # Map DataFrame index to sheet row number (+2 for 1-based index and header)
+        index_to_sheet_row = {idx: idx + 2 for idx in self.original_df.index}
 
+        for idx in diff.index:
+            assert idx in index_to_sheet_row
+            
+            sheet_row = index_to_sheet_row[idx]
+            
+            # Get columns where differences were found
+            diff_cols = diff.columns.get_level_values(0).unique()
+            
+            # For each changed column, get the 'other' value
+            for col_name in diff_cols:
+                # Access the 'other' value using the MultiIndex
+                new_value = diff.loc[idx, (col_name, 'other')]
+                
+                sheet_col_idx = final_col_to_idx[col_name]
+                col_letter = gspread.utils.rowcol_to_a1(1, sheet_col_idx + 1)[:-1]
+                
+                # Format value for sheet (NaN/NA -> "")
+                update_value = "" if pd.isna(new_value) else new_value
+                
+                cell_updates.append({
+                    "range": f"{col_letter}{sheet_row}",
+                    "values": [[update_value]]
+                })
 
-            if changed_mask.any().any():
-                # Pre-calculate A1 letters for existing columns for efficiency
-                col_letter_map_existing = {}
-                for col_name in existing_columns:
-                    try:
-                        col_idx = self.original_df.columns.get_loc(col_name) # 0-based
-                        col_letter_map_existing[col_name] = gspread.utils.rowcol_to_a1(1, col_idx + 1)[:-1]
-                    except KeyError:
-                        # Should not happen if column is in existing_columns
-                        print(f"Warning: Column '{col_name}' somehow not found during A1 calculation.")
-                        continue
-
-                # Map DataFrame index to sheet row number (+2 for 1-based index and header)
-                index_to_sheet_row = {idx: idx + 2 for idx in self.original_df.index}
-
-                # Iterate through the boolean mask to find changed cells
-                for idx in changed_mask.index:
-                    if idx not in index_to_sheet_row: continue # Skip if index somehow changed/removed
-
-                    row_changes = changed_mask.loc[idx]
-                    sheet_row = index_to_sheet_row[idx]
-
-                    for col_name in row_changes[row_changes].index: # Iterate only through changed columns in this row
-                        if col_name not in col_letter_map_existing: continue # Skip if A1 mapping failed
-
-                        col_letter = col_letter_map_existing[col_name]
-                        new_value = self.copy_df.loc[idx, col_name]
-
-                        # Convert NaN to empty string for gspread compatibility in existing columns
-                        # Formulas starting with '=' should be preserved
-                        if pd.isna(new_value):
-                            update_value = ""
-                        else:
-                            update_value = new_value # Removed str() conversion
-
-                        updates.append({
-                            "range": f"{col_letter}{sheet_row}",
-                            "values": [[update_value]]
-                        })
-        return updates
+                
+        # Step 5: Combine and Return
+        return header_updates + cell_updates
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is not None:
@@ -174,6 +171,7 @@ class _UpdateContext:
             return False # Indicate exception was not handled here
 
         # Calculate the necessary updates by comparing the copy with the original
+        # This now uses the order-preserving logic
         updates = self._calculate_updates() # Use the new method
 
         # Apply updates to the sheet and the original DataFrame only if there are changes
@@ -184,24 +182,33 @@ class _UpdateContext:
                 print(f"Updated {len(updates)} cells in Google Sheet.")
 
                 # Update the original DataFrame in memory to match the modified copy
-                # First, update existing values using the copy_df (handles modifications)
-                # Note: update doesn't add new columns or handle NaN overwrites perfectly by default
-                # self.original_df.update(self.copy_df) # Let's replace with direct assignment for clarity
+                # Preserve the original object ID
 
-                # A simpler way to reflect all changes (including NaNs and new cols)
-                # might be to just replace relevant parts or the whole df if structures changed.
-                # Since we handle new columns separately and calculated exact diffs,
-                # let's update based on the copy precisely.
-
-                # Add new columns first
                 new_cols = self.copy_df.columns.difference(self.original_df.columns)
-                for col in new_cols:
-                     # Ensure new columns are added with the correct index alignment
-                    self.original_df[col] = self.copy_df[col]
+                cols_to_update = self.copy_df.columns.intersection(self.original_df.columns)
+                final_col_order = list(self.copy_df.columns) # Target order
 
-                # Update existing columns (including setting values to NaN if needed)
-                existing_cols = self.original_df.columns.intersection(self.copy_df.columns)
-                self.original_df[list(existing_cols)] = self.copy_df[list(existing_cols)]
+                # Update existing column values
+                if not cols_to_update.empty:
+                    self.original_df[cols_to_update] = self.copy_df[cols_to_update]
+
+                # Add any new columns
+                if not new_cols.empty:
+                    for col in new_cols:
+                        self.original_df[col] = self.copy_df[col]
+
+                # Ensure the column order matches copy_df
+                current_order = list(self.original_df.columns)
+                if current_order != final_col_order:
+                    # Reindex creates a *new* DataFrame, we need to update inplace.
+                    # A common way is to replace the internal manager object.
+                    # This is somewhat internal, but often necessary for inplace reordering.
+                    temp_reordered = self.original_df[final_col_order].copy()
+                    self.original_df._mgr = temp_reordered._mgr
+                    # Alternatively, clear and refill, but _mgr replacement is more direct
+                    # self.original_df.drop(self.original_df.columns, axis=1, inplace=True)
+                    # for col in final_col_order:
+                    #     self.original_df[col] = temp_reordered[col]
 
 
                 print(f"Updated original DataFrame in memory.")

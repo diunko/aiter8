@@ -140,25 +140,25 @@ def test_calculate_updates_add_multiple_new_fields_and_modify_existing(data_shee
     Unit test for _calculate_updates: Adding multiple new columns and modifying an existing one.
     """
     def modify(df):
-        # New columns (will become E, F, G - alphabetically sorted)
+        # New columns added in specific order: description, category, in_stock
         df['description'] = pd.NA
         df['category'] = pd.NA
-        df['in_stock'] = pd.NA 
+        df['in_stock'] = pd.NA
         # Set values
-        df.loc[0, 'description'] = 'Desc for F2' # F2
-        df.loc[1, 'category'] = 'Cat for E3'     # E3
-        df.loc[2, 'in_stock'] = True            # G4
+        df.loc[0, 'description'] = 'Desc for E2' # description is first new col (E)
+        df.loc[1, 'category'] = 'Cat for F3'     # category is second new col (F)
+        df.loc[2, 'in_stock'] = True            # in_stock is third new col (G)
         df.loc[0, 'col_c'] = 15.0                # Modify existing C2
 
     expected_payload = [
-        # Headers
-        {'range': 'E1', 'values': [['category']]},
-        {'range': 'F1', 'values': [['description']]},
+        # Headers (in order of addition)
+        {'range': 'E1', 'values': [['description']]},
+        {'range': 'F1', 'values': [['category']]},
         {'range': 'G1', 'values': [['in_stock']]},
         # Values
-        {'range': 'E3', 'values': [['Cat for E3']]},           # idx 1, category
-        {'range': 'F2', 'values': [['Desc for F2']]},         # idx 0, description
-        {'range': 'G4', 'values': [[True]]},                    # idx 2, in_stock
+        {'range': 'E2', 'values': [['Desc for E2']]},           # idx 0, description (E)
+        {'range': 'F3', 'values': [['Cat for F3']]},         # idx 1, category (F)
+        {'range': 'G4', 'values': [[True]]},                    # idx 2, in_stock (G)
         {'range': 'C2', 'values': [[15.0]]}                     # idx 0, col_c (modified existing)
     ]
 
@@ -196,23 +196,29 @@ def test_calculate_updates_add_field_with_dict_assignment(data_sheet_instance):
     Unit test for _calculate_updates: Adding fields via dict assignment.
     """
     def modify(df):
+        # Keep dict for defining values
         new_fields_dict = {
-            'description': 'Dict Desc for F3',
-            'category': 'Dict Cat for E3',
+            'description': 'Dict Desc for E3',
+            'category': 'Dict Cat for F3',
             'tags': 'Dict Tags for G3'
         }
-        # Simulate changes: Add columns, assign values to index 1 (Sheet Row 3)
-        for field in new_fields_dict:
-            df[field] = pd.NA 
+        # Simulate changes: Add columns in specific order, assign values to index 1 (Sheet Row 3)
+        # Order: description, category, tags
+        df['description'] = pd.NA
+        df['category'] = pd.NA
+        df['tags'] = pd.NA
+        # Assignment happens based on dict keys, but columns were added above
         df.loc[1, list(new_fields_dict.keys())] = list(new_fields_dict.values())
 
     expected_payload = [
-        {'range': 'E1', 'values': [['category']]},
-        {'range': 'F1', 'values': [['description']]},
+        # Headers (in order description, category, tags -> E, F, G)
+        {'range': 'E1', 'values': [['description']]},
+        {'range': 'F1', 'values': [['category']]},
         {'range': 'G1', 'values': [['tags']]},
-        {'range': 'E3', 'values': [['Dict Cat for E3']]}, 
-        {'range': 'F3', 'values': [['Dict Desc for F3']]},
-        {'range': 'G3', 'values': [['Dict Tags for G3']]},
+        # Values assigned to row index 1 (Sheet row 3)
+        {'range': 'E3', 'values': [['Dict Desc for E3']]}, # description
+        {'range': 'F3', 'values': [['Dict Cat for F3']]}, # category
+        {'range': 'G3', 'values': [['Dict Tags for G3']]}, # tags
     ]
 
     actual_payload = _run_calc_updates(data_sheet_instance, modify)
