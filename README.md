@@ -1,17 +1,17 @@
-# iter8
+# aiter8
 
 A Python library for interactively updating Google Sheets, facilitating collaborative workflows involving LLMs and human edits.
 
 ## Installation
 
 ```bash
-pip install iter8
+pip install aiter8
 ```
 
 ## Basic Usage
 
 ```python
-from iter8 import DataSheet
+from aiter8 import DataSheet
 import pandas as pd
 
 # Assuming you have gspread credentials set up

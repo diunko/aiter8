@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "iter8"
+name = "aiter8"
 version = "0.1.0" # Initial version
 authors = [
     { name="Dima Unk", email="dima.unk.ai@gmail.com" },
@@ -12,6 +12,12 @@ description = "A Python library for interactively updating Google Sheets, facili
 readme = "README.md"
 license = { file="LICENSE" }
 requires-python = ">=3.8" # Assumes Python 3.8+ compatibility, adjust if needed
+
+# Project URLs
+[project.urls]
+"Homepage" = "https://github.com/diunko/aiter8"
+"Repository" = "https://github.com/diunko/aiter8"
+
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -39,4 +45,4 @@ dev = [
 # Tells setuptools that your package code is inside the 'src' directory
 package-dir = {"" = "src"}
 # Explicitly list the main package
-packages = ["iter8"] 
+packages = ["aiter8"] 

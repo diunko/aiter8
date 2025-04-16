@@ -1,7 +1,7 @@
 .PHONY: clean install-dev build test upload-test upload venv check-installed
 
 # Variables
-PACKAGE_NAME = iter8
+PACKAGE_NAME = aiter8
 PYTHON = python3
 PIP = pip
 VENV = .pyenv
