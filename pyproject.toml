@@ -12,12 +12,6 @@ description = "A Python library for interactively updating Google Sheets, facili
 readme = "README.md"
 license = { file="LICENSE" }
 requires-python = ">=3.8" # Assumes Python 3.8+ compatibility, adjust if needed
-
-# Project URLs
-[project.urls]
-"Homepage" = "https://github.com/diunko/aiter8"
-"Repository" = "https://github.com/diunko/aiter8"
-
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -31,6 +25,11 @@ dependencies = [
     "gspread>=5.0",
     # Add any other core runtime dependencies here later
 ]
+
+# Project URLs
+[project.urls]
+"Homepage" = "https://github.com/diunko/aiter8"
+"Repository" = "https://github.com/diunko/aiter8"
 
 # Optional development dependencies
 [project.optional-dependencies]
